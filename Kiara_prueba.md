@@ -26,4 +26,4 @@
 
 ## 4. Frame Prefix Sequence
 * **Short Preamble Sequence:** Consists of a short training sequence pattern spanning 16 samples that repeats 10 times (total 160 samples, $8\,\mu\text{s}$ duration). It is mainly used for frame detection, AGC, and coarse frequency offset estimation.
-* **Long Preamble Sequence:** Consists of a pattern spanning 64 samples that repeats 2.5 times (total 160 samples including CP, $8\,\mu\text{s}$ duration)[cite: 4]. It is used for fine frequency offset estimation and channel estimation/symbol alignment[cite: 3, 4].
+* **Long Preamble Sequence:** Consists of a pattern spanning 64 samples that repeats 2.5 times (total 160 samples including CP, $8\,\mu\text{s}$ duration). It is used for fine frequency offset estimation and channel estimation/symbol alignment.
