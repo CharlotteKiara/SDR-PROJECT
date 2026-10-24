@@ -1,1 +1,0 @@
-Hola ke tal
