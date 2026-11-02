@@ -377,71 +377,112 @@ Based on these results, **NWin = 48** is retained as a good compromise for the f
 # Week 2 — IEEE 802.11a Frame Synchronization and Short Sync Block
 
 ## 1. Introduction to the OFDM Sync Short Block
-Following the frame detection phase established in Week 1, the next major objective of the receiver is to transition from raw metric visualization to actual automated frame synchronization using the **OFDM Sync Short** block (or WiFi Sync Short).
 
-While the previous stage generated a continuous normalized autocorrelation metric $c[n]$ to highlight the Short Training Field (STF), this block acts as the core control mechanism of the receiver pipeline. It evaluates the incoming metric against a defined threshold, identifies the precise start of a valid frame, inserts metadata stream tags (wifi_start), and gates the downstream processing chain to handle incoming packets.
+Following the frame detection phase established in Week 1, the next objective is to use the normalized autocorrelation metric for automatic frame detection with the **OFDM Sync Short** block (or WiFi Sync Short).
+
+In Week 1, the normalized autocorrelation metric $c[n]$ was calculated and visualized in order to identify the characteristic plateau produced by the Short Training Field (STF). In Week 2, this metric is used by the OFDM Sync Short block to automatically detect the presence of an IEEE 802.11a frame and control which samples are forwarded to the next stages of the receiver.
 
 ---
 
 ## 2. Understanding the OFDM Sync Short Block
-The **OFDM Sync Short** block performs several critical functions within the IEEE 802.11a physical layer receiver:
 
-* **Trigger and Gated Mechanism:** It monitors the normalized correlation metric $c[n]$ provided by the divide block.
-* **Tag Generation:** When the metric crosses the specified threshold and satisfies plateau requirements, the block injects a stream tag (wifi_start) into the sample stream. This tag travels downstream to inform subsequent blocks (such as long synchronization and decoding stages) where the packet boundary begins.
-* **Stream Alignment:** It ensures that the raw complex baseband samples are properly aligned with the detected frame timing before passing them to the Fourier transform and equalization stages.
+The **OFDM Sync Short** block performs the first synchronization step of the receiver.
+
+The Short Training Field contains a 16-sample pattern that is repeated several times. Because of this periodic structure, the normalized autocorrelation $c[n]$ becomes high during the STF and produces a plateau.
+
+The block performs the following functions:
+
+* **Frame Detection:** It monitors the normalized autocorrelation metric $c[n]$ calculated by the previous blocks.
+* **Threshold Decision:** It checks whether the correlation remains sufficiently high to identify a plateau corresponding to the Short Training Field.
+* **Sample Forwarding:** The block acts as a valve. When a frame is detected, a fixed number of samples are forwarded to the following receiver stages. Otherwise, samples are discarded.
+* **Tag Generation:** In our GNU Radio flowgraph, the output is connected to a Tag Debug block, allowing the `wifi_start` events generated during frame detection to be observed.
+
+The OFDM Sync Short block therefore provides a coarse frame detection stage. More precise symbol alignment is performed later by the long synchronization stage.
 
 ---
 
-## 3. Meaning of the Thresholds
-The performance of the synchronization block relies heavily on its configuration parameters, with the **Threshold** being the most critical:
+## 3. Meaning of the Threshold Parameters
 
-* **Definition:** The threshold represents the minimum normalized correlation value ($c[n]$) required to register a potential frame start. In our GNU Radio configuration, it is typically set around $0.8$ (or 800m).
-* **Operational Role:** It establishes the decision boundary between random background noise/interference and a legitimate IEEE 802.11a preamble transmission.
-* **Min Plateau Parameter:** Working alongside the threshold, parameters like Min Plateau ensure that the metric remains above the threshold for a minimum number of consecutive samples, preventing single-sample noise spikes from triggering false synchronization events.
+The behavior of the synchronization block depends strongly on its detection parameters.
+
+### Threshold
+
+The **Threshold** defines the correlation level required for a sample to contribute to the detection of a valid plateau.
+
+A lower threshold makes the detector more permissive, while a higher threshold makes it more selective.
+
+### Min Plateau
+
+The **Min Plateau** parameter is used to ensure that the threshold condition persists before a frame is detected. This prevents an isolated correlation peak from immediately triggering the detector.
+
+The paper describes the detection of a plateau using consecutive samples above a configurable threshold. In our GNU Radio flowgraph, the **Min Plateau** parameter is set to 2.
 
 ---
 
 ## 4. Exploration of Threshold Sensitivity
-To understand how the threshold affects receiver behavior, experiments were conducted by varying its value relative to the default setting of $0.8$:
 
-### 4.1 Increasing the Threshold (e.g., to 0.95)
-* **Behavior:** The receiver becomes extremely strict. It requires near-perfect correlation matching the ideal STF structure.
-* **Impact:** While false alarms due to noise are completely eliminated, many legitimate frames experiencing minor channel degradation, multipath fading, or low Signal-to-Noise Ratio (SNR) fail to cross the high barrier. This results in **missed packet detections** and a significant drop in packet reception rate.
+Different threshold values were tested in order to observe their influence on the behavior of the OFDM Sync Short block.
 
-### 4.2 Decreasing the Threshold (e.g., to 0.35)
-* **Behavior:** The receiver becomes overly permissive and sensitive.
-* **Impact:** Minor fluctuations in background noise, adjacent channel interference, or multipath reflections frequently exceed the low threshold. This leads to false positives, where the system falsely identifies noise bursts as valid frames, triggering downstream decoding errors and wasting processing resources on invalid data.
+### 4.1 Increasing the Threshold
+
+When the threshold is increased, the detector becomes more selective. A higher correlation value is required before a frame can be detected.
+
+During our tests, increasing the threshold reduced the number of detected `wifi_start` events. If the threshold becomes too high, the detector can fail to detect frames whose correlation plateau does not reach the required level.
+
+Therefore, a threshold that is too high can lead to **missed frame detections**.
+
+### 4.2 Decreasing the Threshold
+
+When the threshold is decreased, the detector becomes more permissive because lower correlation values can satisfy the detection condition.
+
+This increases the possibility that fluctuations that do not correspond to a valid Short Training Field satisfy the detection condition.
+
+Therefore, a threshold that is too low can increase the risk of **false detections**.
+
+### 4.3 Threshold Trade-Off
+
+The threshold must therefore provide a compromise between sensitivity and selectivity:
+
+* **Lower threshold:** more permissive detection, with a higher risk of false detections.
+* **Higher threshold:** more selective detection, with a higher risk of missing weaker frames.
+
+The paper does not specify a single optimal numerical threshold. The appropriate value depends on the received signal and channel conditions.
 
 ---
 
 ## 5. Limitations and Breakdown Scenarios
-Despite its simplicity and effectiveness under clean test conditions, the autocorrelation-based short synchronization approach has inherent structural limitations:
 
-### 5.1 The Blind Spot / Processing Dead Time Limitation
-Once the **OFDM Sync Short** block detects a valid peak and triggers synchronization, it enters an active state where it locks onto the detected frame, processes a fixed number of samples, and forwards them.
+Despite its simplicity and low computational cost, the autocorrelation-based frame detection method has several limitations.
 
-* **The Breakdown Case:** If a high-density traffic scenario occurs where a second IEEE 802.11a frame arrives closely following or overlapping the first one while the block is still busy handling the initial packet the synchronization block is blind to the second frame.
-* **Consequence:** The second frame is completely ignored or truncated because the block's internal state machine cannot re-trigger during active processing of the current packet. This demonstrates the limitation of a purely threshold-triggered sequential sync block under heavy burst traffic conditions.
+### 5.1 Fixed Number of Forwarded Samples
+
+After detecting a frame, the OFDM Sync Short block forwards a **fixed number of samples**.
+
+This means that the maximum frame size that can be processed is limited by the number of samples forwarded by the block.
+
+### 5.2 Closely Spaced Frames
+
+Another limitation occurs when a second frame arrives shortly after the first detected frame.
+
+While the block is still forwarding the samples associated with the first frame, a new frame can be missed. The paper specifically describes this problem for a **CTS (Clear To Send) frame following an RTS (Request To Send) frame**. In this situation, the receiver can remain synchronized to the preceding RTS and fail to detect the following CTS.
+
+This demonstrates that the approach can have difficulties with closely spaced frames.
+
+### 5.3 Autocorrelation Detection
+
+The paper also mentions that **matched filtering** could provide more robust detection of the known training sequence. However, matched filtering requires significantly more computation.
+
+For this reason, the receiver uses the computationally simpler autocorrelation method for the initial frame detection stage.
 
 ---
 
 ## 6. Week 2 Conclusion
-Week 2 successfully transitioned the receiver from open-loop metric visualization to closed-loop automated frame synchronization:
 
-* The **OFDM Sync Short** block was integrated and analyzed, demonstrating its role as the gatekeeper of the receiver chain.
-* The impact of the detection threshold was evaluated, proving that $0.8$ serves as an optimal compromise between false alarms and missed detections.
-* The operational limitations of threshold-based autocorrelation were identified, specifically highlighting vulnerability to closely spaced burst packets where the system becomes temporarily unresponsive to subsequent frames.
-# Repository Structure
+Week 2 extended the frame detection system developed during Week 1 by integrating the **OFDM Sync Short** block.
 
-```text
-SDR-PROJECT/
-│
-├── README.md
-│
-└── Week1/
-    ├── week1_frame_detection.grc
-    └── Results/
-        ├── NWin32.png
-        ├── NWin48.png
-        └── NWin64.png
-```
+The normalized autocorrelation metric $c[n]$ is now used to automatically detect the Short Training Field and determine when samples should be forwarded to the next stages of the receiver.
+
+Changing the detection threshold showed the expected trade-off between permissive and selective detection. Increasing the threshold makes the detector more selective, while decreasing it makes the detector more permissive.
+
+The main limitations of this approach are the fixed number of forwarded samples and the possibility of missing frames that arrive shortly after a previously detected frame.
+
