@@ -522,6 +522,14 @@ The final configuration used was:
 
 The value of 240 samples for the delay is the value shown in the receiver architecture of the article. The installed version of the `WiFi Sync Long` block also uses 240 as the default Sync Length.
 
+### Parameters that can be varied
+
+In the current implementation, the main parameter of the `WiFi Sync Long` block that can be changed is the **Sync Length**. Its default value in the installed version is **240 samples**.
+
+The **delay value** of the delayed input can also be modified externally using the `Delay` block. The reference configuration uses a delay of **240 samples**. Changing this value changes the relative alignment between the direct and delayed inputs of `WiFi Sync Long`.
+
+The frequency offset estimation itself relies on the periodicity of the Short Training Field, with samples separated by **16 samples**. This value comes from the IEEE 802.11a preamble structure and was therefore kept unchanged in our implementation.
+
 ### Delayed input experiment
 
 To study the effect of the delayed input, the same input file was processed while changing only the delay value. The Sync Length remained fixed at 240 samples.
