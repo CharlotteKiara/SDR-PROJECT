@@ -486,3 +486,60 @@ Changing the detection threshold showed the expected trade-off between permissiv
 
 The main limitations of this approach are the fixed number of forwarded samples and the possibility of missing frames that arrive shortly after a previously detected frame.
 
+
+## Week 3 – Frequency Offset Correction and OFDM Sync Long
+
+### Objective
+
+The objective of Week 3 was to understand the `OFDM Sync Long` block and the frequency offset correction described in Section 2.3 of the article. We also studied the purpose of the delayed input and the effect of changing its delay.
+
+### Frequency offset correction
+
+A frequency offset can appear because the transmitter and receiver local oscillators are not perfectly synchronized. This produces a progressive phase rotation in the received complex samples.
+
+The short training sequence is periodic with a period of 16 samples. Therefore, the phase difference between samples separated by 16 samples can be used to estimate the frequency offset:
+
+$$
+\Delta f = \frac{1}{16} \arg\left(\sum_n s[n]\,s^*[n+16]\right)
+$$
+
+The estimated rotation can then be compensated on the received samples.
+### OFDM Sync Long
+
+The `OFDM Sync Long` block was added after `WiFi Sync Short`.
+
+Two versions of the output of `WiFi Sync Short` are provided to the block:
+
+- a direct input;
+- a delayed input using a delay of 240 samples.
+
+The final configuration used was:
+
+- Sync Short threshold: `0.8`
+- Minimum plateau: `2`
+- Delay: `240 samples`
+- Sync Length: `240 samples`
+
+The value of 240 samples for the delay is the value shown in the receiver architecture of the article. The installed version of the `WiFi Sync Long` block also uses 240 as the default Sync Length.
+
+### Delayed input experiment
+
+To study the effect of the delayed input, the same input file was processed while changing only the delay value. The Sync Length remained fixed at 240 samples.
+
+| Delay (samples) | `wifi_start` tags observed at Sync Long output |
+|---:|---:|
+| 240 | 574 |
+| 200 | 501 |
+| 160 | 427 |
+
+Reducing the delay reduced the number of `wifi_start` tags observed at the output of `WiFi Sync Long`. This shows that the delayed input affects the synchronization process.
+
+The delayed branch provides an earlier version of the received samples while the synchronization algorithm processes the direct input. Changing the delay changes the relative alignment between these two input streams.
+
+After the experiment, the delay was restored to `240 samples`.
+
+### Week 3 Conclusion
+
+During Week 3, the `OFDM Sync Long` block was added to the receiver chain and the principle of frequency offset correction was studied. The delayed input was also investigated experimentally. With the reference delay of 240 samples, 574 `wifi_start` tags were observed at the output, compared with 501 for a delay of 200 samples and 427 for 160 samples. This experiment showed that the delay value has a clear impact on the synchronization process.
+
+The final configuration was restored to a delay of 240 samples with a Sync Length of 240 samples. The receiver is now ready for the next step: precise OFDM symbol alignment using the Long Training Field.
