@@ -1,553 +1,832 @@
-# SDR-PROJECT
+# IEEE 802.11 OFDM Receiver – SDR Project
 
-Implementation of an **IEEE 802.11a OFDM receiver in GNU Radio**.
+## Project Overview
 
-The receiver is developed progressively following the project guide and the receiver architecture presented in the reference paper. The first step is the detection of the beginning of an IEEE 802.11a frame using the periodicity of the short training sequence.
+The objective of this project is to study and progressively implement an **IEEE 802.11a/g/p OFDM receiver using GNU Radio**.
+
+The work is based on the article:
+
+> B. Bloessl, M. Segata, C. Sommer and F. Dressler, *“An IEEE 802.11a/g/p OFDM Receiver for GNU Radio”*.
+
+The receiver is constructed and analysed progressively following the weekly project guide.
+
+The first three weeks focus on the synchronization part of the receiver:
+
+- **Week 1:** STF autocorrelation and frame-detection metric
+- **Week 2:** frame detection with `WiFi Sync Short`
+- **Week 3:** `WiFi Sync Long`, carrier frequency offset correction and delayed input
+
+The experiments use recorded IEEE 802.11 baseband signals provided for the project.
+
+Our main recording is:
+
+`Sample1_20MHz_Channel36.bin`
+
+with a sample rate of:
+
+`20 MHz`
+
+For most experiments, only the **first 2,000,000 samples** are processed in order to keep the execution time reasonable and ensure that results obtained in different weeks can be compared using exactly the same signal segment.
 
 ---
 
-# Week 1 — IEEE 802.11a Parameters and Frame Detection
+# Week 1 – STF Autocorrelation and Frame Detection Metric
 
-## 1. IEEE 802.11a OFDM Parameters
+## Objective
 
-The first objective was to identify the main parameters of the IEEE 802.11a OFDM physical layer.
+The objective of Week 1 was to understand how an IEEE 802.11 receiver can detect the beginning of a possible frame using the **Short Training Field (STF)**.
 
-| Parameter | Value |
-|---|---:|
-| Channel bandwidth | 20 MHz |
-| Sampling rate | 20 MS/s |
-| FFT/IFFT size | 64 |
-| Subcarrier spacing | 312.5 kHz |
-| Total number of subcarriers | 64 |
-| Used subcarriers | 52 |
-| Data subcarriers | 48 |
-| Pilot subcarriers | 4 |
-| Useful OFDM symbol duration | 3.2 µs |
-| Cyclic prefix duration | 0.8 µs |
-| Total OFDM symbol duration | 4 µs |
-| Useful symbol length | 64 samples |
-| Cyclic prefix length | 16 samples |
-| Total symbol length | 80 samples |
+The STF is located at the beginning of an IEEE 802.11 frame and contains a highly repetitive structure.
 
-### Subcarrier spacing
+This repetition can be detected using autocorrelation.
 
-The subcarrier spacing is obtained from:
+The main objectives were therefore to:
 
-**Δf = fs / NFFT**
+- understand the structure of the STF;
+- understand why a delay of 16 samples is used;
+- implement the autocorrelation metric described in the reference article;
+- normalize the autocorrelation using the received signal power;
+- observe the resulting detection plateau;
+- analyse the signal in the time and frequency domains.
+
+---
+
+## STF periodicity
+
+The IEEE 802.11 Short Training Field contains a sequence that repeats every **16 samples**.
+
+Therefore, during the STF:
+
+`r[n] ≈ r[n+16]`
+
+This property can be detected by comparing the received signal with a delayed copy of itself.
+
+The received signal is therefore divided into two branches:
+
+1. the original signal;
+2. the same signal delayed by 16 samples.
+
+One branch is complex-conjugated and both branches are multiplied.
+
+This produces a correlation between samples separated by 16 samples.
+
+---
+
+## Autocorrelation
+
+The autocorrelation used for frame detection can be represented as:
+
+**a[n] = Σ r[n+k] × r*[n+k+16]**
+
+where `*` represents the complex conjugate.
+
+When the signal contains the STF, samples separated by 16 positions are similar.
+
+The magnitude of the autocorrelation therefore becomes large.
+
+Outside the STF, the signal is not necessarily periodic every 16 samples, so the correlation is generally lower.
+
+---
+
+## Power estimation
+
+The received signal power is also calculated.
+
+It can be represented as:
+
+**p[n] = Σ |r[n+k]|²**
+
+This value is used to normalize the autocorrelation.
+
+Without normalization, the correlation magnitude would strongly depend on the received signal amplitude.
+
+---
+
+## Normalized detection metric
+
+The final frame-detection metric is:
+
+**c[n] = |a[n]| / p[n]**
+
+This normalization makes the detector less dependent on the absolute received signal power.
+
+When the STF is present, `c[n]` becomes large and forms a plateau.
+
+This plateau is later used by `WiFi Sync Short` to detect a possible IEEE 802.11 frame.
+
+---
+
+## GNU Radio implementation
+
+The Week 1 GNU Radio flowgraph implements the detection metric using basic signal-processing blocks.
+
+The important parameters are:
+
+- Sample rate: `20 MHz`
+- STF periodicity / delay: `16 samples`
+- Autocorrelation moving-average window: `48 samples`
+- Power moving-average window: `64 samples`
+
+The denominator window is larger because it corresponds to:
+
+`48 + 16 = 64 samples`
+
+The normalized metric is then obtained by dividing the magnitude of the autocorrelation by the estimated signal power.
+
+---
+
+## Observations
+
+When the recorded signal is processed, the normalized autocorrelation increases when an STF is present.
+
+A plateau can therefore be observed around the beginning of possible IEEE 802.11 frames.
+
+With the selected window sizes, an ideal constant-power repeated sequence would approximately produce:
+
+`48 / 64 = 0.75`
+
+However, the real recorded signal contains noise, channel effects and amplitude variations, so the measured plateau is not expected to be perfectly flat or exactly equal to 0.75.
+
+The important observation is the appearance of a region where the normalized autocorrelation remains significantly higher than outside the STF.
+
+---
+
+## Time and frequency analysis
+
+The received signal was also observed using GNU Radio time and frequency sinks.
+
+The time-domain representation allows us to observe changes in the received signal amplitude.
+
+The frequency-domain representation shows the occupied Wi-Fi channel and confirms that the recorded signal contains OFDM transmissions.
+
+These visualizations are useful for understanding the signal, but frame detection itself is based on the STF autocorrelation.
+
+---
+
+## Week 1 conclusion
+
+Week 1 showed that the periodic structure of the Short Training Field can be exploited for frame detection.
+
+The 16-sample repetition allows the receiver to compute a normalized autocorrelation metric.
+
+The final metric:
+
+**c[n] = |a[n]| / p[n]**
+
+produces a plateau when the STF is present.
+
+This metric is used by the synchronization block studied during Week 2.
+
+---
+
+# Week 2 – WiFi Sync Short
+
+## Objective
+
+The objective of Week 2 was to understand the role of the `WiFi Sync Short` block and investigate how its detection parameters affect frame detection.
+
+The main points studied were:
+
+- the role of `WiFi Sync Short`;
+- the meaning of the detection threshold;
+- the effect of changing the threshold;
+- the role of `Min Plateau`;
+- the limitations of autocorrelation-based frame detection;
+- a practical case where detection fails.
+
+---
+
+## Role of WiFi Sync Short
+
+`WiFi Sync Short` receives the normalized autocorrelation metric generated using the STF.
+
+The block searches for a sufficiently long region where the correlation metric exceeds a predefined threshold.
+
+When the detection conditions are satisfied, the block identifies a possible frame start and generates a:
+
+`wifi_start`
+
+tag.
+
+This tag is used by the following synchronization stages of the receiver.
+
+---
+
+## Detection threshold
+
+The threshold determines how large the normalized autocorrelation must be before the signal is considered a possible STF.
+
+A **low threshold** makes the detector more permissive.
+
+This increases the number of detections, but some of these detections may correspond to unwanted triggers rather than actual frame starts.
+
+A **high threshold** makes the detector more restrictive.
+
+This reduces unwanted triggers, but if the threshold becomes too high, valid frames can also be missed.
+
+The objective is therefore not simply to maximize the number of detections.
+
+---
+
+## Min Plateau
+
+`Min Plateau` determines how long the correlation metric must remain above the threshold before a frame start is accepted.
+
+For our experiments:
+
+`Min Plateau = 2`
+
+This value was kept constant during the threshold experiment so that only one parameter was modified at a time.
+
+---
+
+## Experimental configuration
+
+The same signal segment was used for every threshold value:
+
+- Input: `Sample1_20MHz_Channel36.bin`
+- Sample rate: `20 MHz`
+- Samples processed: first `2,000,000`
+- Autocorrelation window: `48`
+- Power window: `64`
+- `Min Plateau = 2`
+
+Only the detection threshold was changed.
+
+The number of generated `wifi_start` tags was counted for each run.
+
+---
+
+## Threshold experiment
+
+The following results were obtained:
+
+| Threshold | wifi_start detections |
+| ---: | ---: |
+| 0.20 | 3089 |
+| 0.30 | 1205 |
+| 0.40 | 573 |
+| 0.50 | 502 |
+| 0.56 | 481 |
+| 0.60 | 452 |
+| 0.70 | 334 |
+| 0.75 | 72 |
+| 0.80 | 0 |
+
+---
+
+## Analysis of the results
+
+The number of detections decreases when the threshold increases.
+
+At very low thresholds, the detector becomes highly permissive.
+
+For example:
+
+`Threshold = 0.20 → 3089 detections`
+
+Increasing the threshold strongly reduces the number of triggers.
+
+Around the reference operating region:
+
+- `0.50 → 502 detections`
+- `0.56 → 481 detections`
+- `0.60 → 452 detections`
+
+The change is relatively gradual.
+
+However, a strong decrease appears when approaching the theoretical STF correlation level:
+
+- `0.70 → 334 detections`
+- `0.75 → 72 detections`
+- `0.80 → 0 detections`
+
+This shows that a threshold that is too restrictive can completely prevent frame detection.
+
+---
+
+## Why use 0.56?
+
+The reference configuration of the current implementation uses:
+
+`Threshold = 0.56`
+
+Our experiment does not prove that `0.56` is mathematically optimal.
+
+Determining an optimal threshold would require knowing the true positions of all transmitted frames and comparing true detections, false detections and missed frames.
+
+However, the experiment shows that `0.56` lies in a useful operating region for this recording.
+
+It produces significantly fewer triggers than very low thresholds while remaining far from the complete detection failure observed at `0.80`.
+
+For the following weeks, we therefore keep:
+
+- `Threshold = 0.56`
+- `Min Plateau = 2`
+
+---
+
+## Limitations of the detection method
+
+Autocorrelation-based frame detection is computationally efficient, which is important because it operates continuously at the full sample rate.
+
+However, it also has limitations.
+
+### Threshold sensitivity
+
+The detector depends on the selected threshold.
+
+A threshold that is too low can generate many unwanted detections, while a threshold that is too high can miss frames.
+
+### Noise and channel conditions
+
+Noise, multipath propagation and signal attenuation can modify the correlation plateau.
+
+The plateau observed with a real signal is therefore not perfectly flat.
+
+### Fixed forwarding behaviour
+
+After detecting a frame, the synchronization stage forwards a fixed amount of data.
+
+This limits the maximum frame size that can be handled by the implementation.
+
+Another frame arriving while the block is already forwarding samples may also be missed.
+
+### Autocorrelation versus matched filtering
+
+Matched filtering using a known STF sequence could provide more robust detection.
+
+However, it would require significantly more computations at the full sample rate.
+
+Autocorrelation is therefore used as an efficient first synchronization stage.
+
+---
+
+## Practical failure case
+
+The threshold experiment provides a direct failure case.
 
 With:
 
-- fs = 20 MHz
-- NFFT = 64
+`Threshold = 0.80`
+
+the detector generated:
+
+`0 wifi_start detections`
+
+for the tested signal segment.
+
+This demonstrates that increasing the threshold too much can prevent the receiver from detecting any frame.
+
+---
+
+## Week 2 conclusion
+
+Week 2 showed how `WiFi Sync Short` transforms the STF autocorrelation metric into frame-start detections.
+
+The threshold controls the trade-off between permissive and restrictive detection.
+
+For our signal:
+
+- low thresholds produced many detections;
+- increasing the threshold progressively reduced the number of detections;
+- `Threshold = 0.80` completely prevented detection.
+
+The reference configuration retained for the following weeks is:
+
+- `Threshold = 0.56`
+- `Min Plateau = 2`
+
+With this configuration and the first 2,000,000 samples:
+
+**481 possible frame starts were detected.**
+
+---
+
+# Week 3 – WiFi Sync Long and Frequency Offset Correction
+
+## Objective
+
+The objective of Week 3 was to understand the second synchronization stage of the receiver.
+
+The main topics were:
+
+- the role of `WiFi Sync Long`;
+- the origin of carrier frequency offset;
+- coarse frequency offset estimation using the STF;
+- fine frequency offset estimation using the LTF;
+- frequency offset correction;
+- the purpose of the delayed input;
+- the influence of changing the Delay value.
+
+---
+
+## Carrier frequency offset
+
+The transmitter and receiver use independent local oscillators.
+
+In practice, their carrier frequencies are never perfectly identical.
+
+The difference between these frequencies creates a **Carrier Frequency Offset (CFO)**.
+
+A CFO produces a progressive phase rotation in the received complex baseband samples.
+
+If this error is not corrected, it can disturb OFDM demodulation and introduce inter-carrier interference.
+
+The receiver therefore estimates and compensates for this frequency difference before decoding the OFDM symbols.
+
+---
+
+## Coarse CFO estimation with the STF
+
+The first frequency-offset estimate is performed using the STF.
+
+Since the STF repeats every 16 samples, the receiver can compare two samples separated by 16 positions.
+
+The phase difference between these repeated samples contains information about the carrier frequency offset.
+
+The principle can be represented as:
+
+**Δf_short = (1/16) arg(Σ s[n]s*[n+16])**
+
+The conjugate product measures the phase difference between the repeated samples.
+
+The sum improves robustness to noise.
+
+The division by 16 converts the accumulated phase difference into a phase rotation per sample.
+
+In the current receiver implementation, this coarse estimation is performed in `WiFi Sync Short`.
+
+---
+
+## Role of WiFi Sync Long
+
+After the first frame detection and coarse CFO correction, the signal enters `WiFi Sync Long`.
+
+The Long Training Field contains two repeated sequences of 64 samples.
+
+`WiFi Sync Long` uses this known structure to:
+
+- locate the LTF;
+- refine the remaining frequency offset;
+- determine a more precise synchronization position;
+- prepare the samples for OFDM symbol processing.
+
+The detailed symbol-alignment operation is studied in Week 4.
+
+---
+
+## Fine CFO estimation
+
+After the coarse STF-based correction, a residual frequency offset can remain.
+
+The two repeated LTF sequences allow this remaining offset to be estimated more accurately.
+
+A simplified representation is:
+
+**Δf_long = (1/64) arg(P1 P2*)**
+
+where `P1` and `P2` represent the complex correlation values associated with the two LTF repetitions.
+
+The receiver therefore uses two frequency-synchronization stages:
+
+| Stage | Block | Training field | Repetition |
+| --- | --- | --- | --- |
+| Coarse CFO | `WiFi Sync Short` | STF | 16 samples |
+| Fine CFO | `WiFi Sync Long` | LTF | 64 samples |
+
+---
+
+## Frequency offset correction
+
+Once the phase rotation has been estimated, the receiver compensates for it by applying an opposite complex rotation.
+
+The principle is:
+
+**s_corrected[n] = s[n] × exp(-j n Δφ)**
+
+where `Δφ` is the estimated phase rotation per sample.
+
+The purpose is to remove the progressive phase rotation caused by the transmitter/receiver oscillator mismatch.
+
+---
+
+## Why does WiFi Sync Long have two inputs?
+
+`WiFi Sync Long` receives:
+
+- a direct input: `in`
+- a delayed input: `in_delayed`
+
+The direct input is used to search for the LTF and determine the synchronization position.
+
+However, the block must examine a certain number of samples before it knows where the correct output should begin.
+
+GNU Radio processes samples continuously and cannot simply go backwards in the stream after making this decision.
+
+For this reason, a second delayed copy of the signal is provided.
+
+The delayed branch preserves earlier samples while the direct branch is being analysed.
+
+---
+
+## Sync Length and Delay
+
+The current reference configuration is:
+
+- `Sync Length = 320 samples`
+- `Delay = 320 samples`
+
+The Delay therefore compensates for the synchronization window used by `WiFi Sync Long`.
+
+Once synchronization has been determined using the direct branch, the corresponding earlier samples are still available on the delayed branch.
+
+This allows correctly positioned samples to be forwarded to the following OFDM processing stages.
+
+---
+
+## First Delay experiment – synchronization tags
+
+The first experiment studied whether changing the Delay modifies the synchronization detections.
+
+The configuration remained:
+
+- Input: `Sample1_20MHz_Channel36.bin`
+- First `2,000,000` samples
+- Sample rate: `20 MHz`
+- Threshold: `0.56`
+- Min Plateau: `2`
+- Sync Length: `320`
+
+Only the external Delay was modified.
+
+Results:
+
+| Delay | Sync Short detections | Sync Long tags |
+| ---: | ---: | ---: |
+| 160 | 481 | 68 |
+| 300 | 481 | 68 |
+| 310 | 481 | 68 |
+| 320 | 481 | 68 |
+
+The number of Sync Short detections remains constant at **481**, which is expected because the Delay is located after `WiFi Sync Short`.
+
+More interestingly, the number of observed Sync Long tags also remains equal to **68**.
+
+Therefore, simply counting synchronization tags does not reveal the effect of changing the delayed input.
+
+---
+
+## Why the Delay can still matter
+
+Inspection of the synchronization behaviour shows that the direct input is used for synchronization detection.
+
+The delayed input is mainly involved when the synchronized samples are forwarded to the following stages.
 
 Therefore:
 
-**Δf = 20 MHz / 64 = 312.5 kHz**
+**an incorrect Delay can leave the synchronization tag count unchanged while shifting the samples sent downstream.**
 
-### Symbol duration
-
-At a sampling rate of 20 MS/s, the sampling period is:
-
-**Ts = 1 / fs = 50 ns**
-
-The useful OFDM symbol contains 64 samples:
-
-**64 × 50 ns = 3.2 µs**
-
-The cyclic prefix contains 16 samples:
-
-**16 × 50 ns = 0.8 µs**
-
-Therefore, a complete OFDM symbol contains 80 samples and lasts:
-
-**80 × 50 ns = 4 µs**
-
-### Why are some subcarriers unused?
-
-Not all 64 FFT bins carry useful information.
-
-Among the 64 subcarriers:
-
-- 48 carry data;
-- 4 are pilot subcarriers;
-- the remaining subcarriers are unused.
-
-The unused subcarriers include the **DC subcarrier**, located at the center of the spectrum, and **guard subcarriers** located at the edges of the OFDM channel.
-
-The guard subcarriers provide spectral separation from neighbouring channels, while the DC subcarrier is not used for data transmission.
+To observe this effect, additional OFDM processing blocks were temporarily connected after `WiFi Sync Long`.
 
 ---
 
-## 2. IEEE 802.11a Frame Preamble
+## Downstream processing experiment
 
-An IEEE 802.11a frame starts with a known preamble used by the receiver for detection and synchronization.
+The following chain was used:
 
-The first part is the **Short Training Field (STF)**.
+`WiFi Sync Long`
 
-The STF contains a **16-sample pattern repeated 10 times**.
+↓
 
-Its total length is therefore:
+`Stream to Vector (64)`
 
-**10 × 16 = 160 samples**
+↓
 
-At 20 MS/s:
+`FFT (64)`
 
-**160 × 50 ns = 8 µs**
+↓
 
-The important property for frame detection is the periodicity of the STF:
+`WiFi Frame Equalizer`
 
-**s[n] ≈ s[n + 16]**
+↓
 
-During the STF, the received signal is therefore strongly correlated with a copy of itself delayed by 16 samples.
+`WiFi Decode MAC`
 
-This property is used for frame detection.
+These blocks are studied in more detail during later weeks.
 
----
-
-## 3. GNU Radio Stream Tags — Section 2.1
-
-GNU Radio stream tags are metadata attached directly to samples in a data stream. They can contain information such as the sampling frequency, carrier frequency or timestamps.
-
-In the IEEE 802.11 receiver, tags are also used to propagate information about the received frame through the processing chain.
-
-The OFDM Sync Long block determines the symbol alignment and tags the first OFDM symbol of each frame. This allows the following blocks to identify the beginning of the frame.
-
-Later, after decoding the SIGNAL field, the OFDM Decode Signal block adds another tag containing the frame encoding scheme and frame length. This information is then used by the following decoding block to correctly process the payload.
-
-Therefore, the tags mentioned in Section 2.1 are not separate blocks visible in the GNU Radio flowgraph. They are metadata attached to the sample stream and are generated and used by the synchronization and decoding blocks.
-
-### Where are the mentioned tags?
-
-Stream tags are **not separate signal connections in the GNU Radio flowgraph**.
-
-Instead, they are attached to particular samples in the stream. They can be generated by a source or processing block, propagated through the receiver and read or modified by downstream blocks.
-
-Therefore, there is no separate "tag wire" visible in GNU Radio Companion. The tags travel together with the sample stream.
-
-For Week 1, the main objective is the processing of the complex I/Q samples. Tags become particularly useful when synchronization and frame information have to be propagated between later stages of the receiver.
+For Week 3, they were only used to determine whether the samples produced by `WiFi Sync Long` could still be decoded.
 
 ---
 
-# 4. Frame Detection — Section 2.2
+## Experiment using the first 2,000,000 samples
 
-The objective of Section 2.2 is to detect the short training sequence at the beginning of an IEEE 802.11a frame.
+The Delay was varied while keeping all other parameters constant.
 
-Since the STF repeats every 16 samples, the received signal is compared with a delayed version of itself.
+| Delay | Detected | Valid SIGNAL | MAC decoded |
+| ---: | ---: | ---: | ---: |
+| 290 | 481 | 8 | 0 |
+| 300 | 481 | 6 | 0 |
+| 310 | 481 | 10 | 0 |
+| 314 | 481 | 9 | 0 |
+| 318 | 481 | 9 | 1 |
+| 320 | 481 | 8 | 1 |
+| 322 | 481 | 7 | 1 |
+| 326 | 481 | 10 | 0 |
+| 330 | 481 | 8 | 1 |
+| 334 | 481 | 11 | 0 |
+| 336 | 481 | 6 | 0 |
+| 338 | 481 | 10 | 0 |
+| 340 | 481 | 10 | 0 |
+| 350 | 481 | 8 | 0 |
+| 360 | 481 | 10 | 0 |
 
-## 4.1 Autocorrelation
+The number of possible frame detections remains equal to **481**.
 
-The autocorrelation is calculated as:
+However, only a very small number of frames from this signal segment are completely decoded.
 
-**a[n] = sum of s[n+k] × conjugate(s[n+k+16]) over NWin samples**
+This demonstrates that:
 
-where:
+**a Sync Short detection is not equivalent to a successfully decoded Wi-Fi frame.**
 
-- s[n] is the received complex baseband signal;
-- 16 is the repetition period of the short training sequence;
-- NWin is the integration window length;
-- conjugate(.) represents the complex conjugate.
+A possible STF can be detected even if later synchronization or decoding stages fail.
 
-During the STF:
-
-**s[n] ≈ s[n + 16]**
-
-Therefore, the magnitude of the autocorrelation becomes large.
-
-### GNU Radio blocks used for the autocorrelation
-
-The autocorrelation branch of the Week 1 flowgraph is implemented using:
-
-**Delay (16) → Complex Conjugate → Multiply → Moving Sum → Complex to Mag**
-
-In the implemented flowgraph, the moving sum is obtained using a FIR filter with:
-
-```text
-Taps = [1] * window_size
-Decimation = 1
-```
-
-This performs the summation over the selected NWin samples.
+Because the first 2,000,000 samples contain too few completely decoded frames to clearly characterize the Delay effect, a supplementary experiment was performed using the complete recording.
 
 ---
 
-## 4.2 Signal Power
+## Supplementary experiment using the complete recording
 
-The received signal power is calculated over the same integration window:
+The same receiver was run on the complete `Sample1_20MHz_Channel36.bin` recording.
 
-**p[n] = sum of |s[n+k]|² over NWin samples**
+All receiver parameters were kept unchanged.
 
-### GNU Radio blocks used for the power
+Only the amount of processed data was increased.
 
-The corresponding branch is:
+The complete recording produced:
 
-**Complex to Mag² → Moving Sum**
+**4357 Sync Short detections**
 
-The moving sum is again implemented using a FIR filter with:
+instead of 481.
 
-```text
-Taps = [1] * window_size
-Decimation = 1
-```
+This increase is simply because more samples were processed.
 
----
+It does not indicate an improvement in the detector.
 
-## 4.3 Normalized Autocorrelation
+The successful Delay experiments produced:
 
-The autocorrelation is normalized using the received power:
+| Delay | Sync Short detections | CRC-valid decoded frames |
+| ---: | ---: | ---: |
+| 290 | 4357 | 0 |
+| 310 | 4357 | 100 |
+| 314 | 4357 | 76 |
+| 320 | 4357 | 648 |
+| 322 | 4357 | 451 |
+| 330 | 4357 | 566 |
+| 334 | 4357 | 574 |
+| 336 | 4357 | 162 |
+| 338 | 4357 | 362 |
+| 340 | 4357 | 12 |
+| 350 | 4357 | 0 |
+| 360 | 4357 | 0 |
 
-**c[n] = |a[n]| / p[n]**
-
-The normalization is important because detection should mainly depend on the **periodicity of the received signal**, rather than only on its absolute amplitude.
-
-When the 16-sample repetition is present:
-
-**c[n] approaches 1**
-
-Outside the short training sequence, this periodicity is absent and the normalized autocorrelation becomes significantly smaller.
-
-A plateau close to 1 can therefore be used to identify the beginning of an IEEE 802.11a frame.
-
----
-
-# 5. GNU Radio Implementation
-
-For offline receiver development, a provided recording of real IEEE 802.11a baseband I/Q samples was used.
-
-The experiment presented here uses:
-
-```text
-Sample1_20MHz_Channel36.bin
-```
-
-The recording has a sampling rate of:
-
-**fs = 20 MS/s**
-
-The input chain is:
-
-**File Source → Throttle**
-
-The `Throttle` block is configured at 20 MS/s to prevent the file from being processed as fast as the computer allows.
-
-The signal is then divided into two branches:
-
-### Autocorrelation branch
-
-**Signal → Delay (16) → Complex Conjugate → Multiply → Moving Sum → Complex to Mag**
-
-### Power branch
-
-**Signal → Complex to Mag² → Moving Sum**
-
-Finally, the two quantities are divided:
-
-**c[n] = |a[n]| / p[n]**
-
-The result is displayed using a `QT GUI Time Sink`.
-
-The complete GNU Radio flowgraph is available in:
-
-```text
-Week1/week1_frame_detection.grc
-```
+Some tested values produced runtime errors and were therefore excluded rather than interpreted as experimental results.
 
 ---
 
-# 6. Frame Detection Results
+## Analysis of the Delay experiment
 
-The next experiment investigates the effect of the integration-window length **NWin**.
+The number of Sync Short detections remains constant at **4357** for every successful run.
 
-Three values were tested:
+However, the number of CRC-valid decoded frames strongly depends on the Delay.
 
-- NWin = 32
-- NWin = 48
-- NWin = 64
+The reference configuration:
 
-A threshold of **0.8** is displayed in red on the figures to make the high-correlation region easier to identify.
+`Delay = 320`
 
-The horizontal axis is expressed in time.
+produced:
 
-Since the sampling rate is 20 MHz:
+**648 CRC-valid frames**
 
-**1 sample = 0.05 µs**
+In contrast:
 
-The absolute horizontal position of the plateau does not need to be identical to Figure 2 of the reference paper. The QT GUI Time Sink displays a selected portion of the sample stream, so the origin of the displayed time axis depends on the displayed window.
+- `Delay = 290` → 0 frames
+- `Delay = 340` → 12 frames
+- `Delay = 350` → 0 frames
+- `Delay = 360` → 0 frames
 
-The important observations are the **high normalized correlation during the repeated training sequence and the clear decrease when the periodic structure ends**.
+This confirms that the delayed branch affects the samples delivered to the OFDM demodulation stages.
 
----
+Some values close to 320 still allow a large number of frames to be decoded.
 
-## 6.1 NWin = 32
+This can be explained partly by the timing tolerance provided by the OFDM cyclic prefix.
 
-![Normalized autocorrelation with NWin = 32](Week1/Results/NWin32.png)
+The results are not perfectly monotonic because the final decoding also depends on the precise FFT window position, the real propagation channel, synchronization decisions and equalization.
 
-With **NWin = 32**, a clear high-correlation region appears at the beginning of the displayed interval.
+The experiment is therefore not intended to derive an exact mathematical relationship between Delay and decoded frames.
 
-The normalized autocorrelation remains approximately between 0.9 and 1 during the plateau and is therefore clearly above the detection threshold of 0.8.
-
-When the repeated short-training structure ends, the correlation decreases sharply below the threshold.
-
-However, after this transition, relatively large fluctuations remain visible. Several peaks can be observed outside the high-correlation region.
-
-This is consistent with the use of a shorter integration window. Fewer samples contribute to each correlation estimate, providing good temporal localization but less averaging of local variations.
+The important result is that an incorrect Delay can prevent successful decoding even when synchronization tags are still generated.
 
 ---
 
-## 6.2 NWin = 48
+## Week 3 conclusion
 
-![Normalized autocorrelation with NWin = 48](Week1/Results/NWin48.png)
+Week 3 showed that IEEE 802.11 frequency synchronization is performed progressively.
 
-With **NWin = 48**, the beginning of the displayed interval again produces a very clear plateau close to 1.
+`WiFi Sync Short` uses the STF periodicity to obtain a coarse CFO estimate.
 
-The normalized autocorrelation remains well above the 0.8 threshold during this region and then falls rapidly below the threshold.
+`WiFi Sync Long` then uses the repeated LTF structure to refine the remaining frequency error and prepare the signal for precise OFDM synchronization.
 
-Compared with NWin = 32, the values outside the high-correlation region are generally less irregular.
+The delayed input is necessary because the block must analyse samples before knowing the correct synchronization position.
 
-The separation between the detected region and the rest of the signal is therefore very clear.
+The reference configuration is:
 
-NWin = 48 provides a good compromise between:
+- `Sync Length = 320 samples`
+- `Delay = 320 samples`
 
-- maintaining a clearly localized transition;
-- reducing fluctuations;
-- obtaining a stable high-correlation plateau.
+Changing the Delay did not modify the observed synchronization tag counts in our first experiment.
 
-For this reason, **NWin = 48 is retained for the final Week 1 implementation**.
+However, downstream decoding showed that an incorrect Delay changes the alignment of the samples sent to the following OFDM processing stages and can strongly reduce or completely prevent successful frame decoding.
 
-This is also the integration-window value reported as working well in the reference receiver implementation.
+For the following weeks, the reference configuration remains:
 
----
-
-## 6.3 NWin = 64
-
-![Normalized autocorrelation with NWin = 64](Week1/Results/NWin64.png)
-
-With **NWin = 64**, the high-correlation region remains clearly visible and reaches values close to 1.
-
-Increasing the integration window means that more samples contribute to each correlation estimate.
-
-The values outside the plateau are generally smoother and the fluctuations are reduced compared with the shorter integration window.
-
-However, using a larger window also increases temporal averaging. The transitions are therefore averaged over a larger number of samples.
-
-NWin = 64 provides stronger smoothing, but with reduced temporal localization compared with a shorter integration window.
+**Sync Length = 320, Delay = 320**
 
 ---
 
-# 7. Comparison of NWin
+# Current Receiver Configuration
 
-The three experiments illustrate the trade-off introduced by the integration-window length.
+At the end of Week 3, the synchronization part of the receiver can be summarized as:
 
-| NWin | Main observation |
-|---:|---|
-| 32 | Good temporal localization, but larger fluctuations outside the STF |
-| 48 | Clear plateau and good compromise between smoothing and localization |
-| 64 | Stronger smoothing, but more temporal averaging |
+`Recorded IQ samples`
 
-The experiments show why an intermediate integration-window length is useful.
+↓
 
-The final Week 1 implementation therefore uses:
+`STF autocorrelation`
 
-**NWin = 48**
+↓
 
----
+`Normalized detection metric`
 
-# 8. Week 1 Conclusion
+↓
 
-Week 1 established the main parameters of the IEEE 802.11a OFDM physical layer and implemented the first operation of the receiver: **frame detection**.
+`WiFi Sync Short`
 
-The 16-sample periodicity of the Short Training Field allows the beginning of a frame to be detected using normalized autocorrelation.
+↓
 
-The GNU Radio implementation computes:
+`WiFi Sync Long`
 
-1. the correlation between the received signal and a version delayed by 16 samples;
-2. the received power over the same integration window;
-3. the normalized metric:
+↓
 
-**c[n] = |a[n]| / p[n]**
+`Stream to Vector`
 
-Using the provided 20 MHz IEEE 802.11a I/Q recording, a clear high-correlation plateau was obtained.
+↓
 
-The influence of the integration-window length was investigated experimentally using NWin = 32, 48 and 64.
+`FFT`
 
-The results show that increasing NWin provides stronger averaging, while a shorter window provides better temporal localization.
+↓
 
-Based on these results, **NWin = 48** is retained as a good compromise for the following receiver stages.
+`WiFi Frame Equalizer`
 
----
-# Week 2 — IEEE 802.11a Frame Synchronization and Short Sync Block
+↓
 
-## 1. Introduction to the OFDM Sync Short Block
+`WiFi Decode MAC`
 
-Following the frame detection phase established in Week 1, the next objective is to use the normalized autocorrelation metric for automatic frame detection with the **OFDM Sync Short** block (or WiFi Sync Short).
+The main parameters currently used are:
 
-In Week 1, the normalized autocorrelation metric $c[n]$ was calculated and visualized in order to identify the characteristic plateau produced by the Short Training Field (STF). In Week 2, this metric is used by the OFDM Sync Short block to automatically detect the presence of an IEEE 802.11a frame and control which samples are forwarded to the next stages of the receiver.
-
----
-
-## 2. Understanding the OFDM Sync Short Block
-
-The **OFDM Sync Short** block performs the first synchronization step of the receiver.
-
-The Short Training Field contains a 16-sample pattern that is repeated several times. Because of this periodic structure, the normalized autocorrelation $c[n]$ becomes high during the STF and produces a plateau.
-
-The block performs the following functions:
-
-* **Frame Detection:** It monitors the normalized autocorrelation metric $c[n]$ calculated by the previous blocks.
-* **Threshold Decision:** It checks whether the correlation remains sufficiently high to identify a plateau corresponding to the Short Training Field.
-* **Sample Forwarding:** The block acts as a valve. When a frame is detected, a fixed number of samples are forwarded to the following receiver stages. Otherwise, samples are discarded.
-* **Tag Generation:** In our GNU Radio flowgraph, the output is connected to a Tag Debug block, allowing the `wifi_start` events generated during frame detection to be observed.
-
-The OFDM Sync Short block therefore provides a coarse frame detection stage. More precise symbol alignment is performed later by the long synchronization stage.
+| Parameter | Value |
+| --- | --- |
+| Sample rate | 20 MHz |
+| STF repetition | 16 samples |
+| Autocorrelation window | 48 samples |
+| Power window | 64 samples |
+| Sync Short threshold | 0.56 |
+| Min Plateau | 2 |
+| Sync Length | 320 samples |
+| External Delay | 320 samples |
+| FFT length | 64 samples |
 
 ---
 
-## 3. Meaning of the Threshold Parameters
+# Next Step – Week 4
 
-The behavior of the synchronization block depends strongly on its detection parameters.
+The next step is to study **precise OFDM symbol alignment using the Long Training Field**.
 
-### Threshold
+In particular, Week 4 will focus on:
 
-The **Threshold** defines the correlation level required for a sample to contribute to the detection of a valid plateau.
-
-A lower threshold makes the detector more permissive, while a higher threshold makes it more selective.
-
-### Min Plateau
-
-The **Min Plateau** parameter is used to ensure that the threshold condition persists before a frame is detected. This prevents an isolated correlation peak from immediately triggering the detector.
-
-The paper describes the detection of a plateau using consecutive samples above a configurable threshold. In our GNU Radio flowgraph, the **Min Plateau** parameter is set to 2.
+- matched filtering with the known LTF;
+- the implementation of the correlation used for symbol alignment;
+- Equation 6 of the reference article;
+- the reason for the additional 64 samples in Equation 7;
+- the role of the `Stream to Vector` block;
+- how synchronized samples are converted into 64-sample OFDM symbols before the FFT.
 
 ---
 
-## 4. Exploration of Threshold Sensitivity
+# References
 
-Different threshold values were tested in order to observe their influence on the behavior of the OFDM Sync Short block.
+1. B. Bloessl, M. Segata, C. Sommer and F. Dressler, *“An IEEE 802.11a/g/p OFDM Receiver for GNU Radio”*, SRIF 2013.
 
-### 4.1 Increasing the Threshold
+2. A. Aguiar, *Guide to Work through the 802.11a Receiver Article*, Digital Communications SDR Project.
 
-When the threshold is increased, the detector becomes more selective. A higher correlation value is required before a frame can be detected.
-
-During our tests, increasing the threshold reduced the number of detected `wifi_start` events. If the threshold becomes too high, the detector can fail to detect frames whose correlation plateau does not reach the required level.
-
-Therefore, a threshold that is too high can lead to **missed frame detections**.
-
-### 4.2 Decreasing the Threshold
-
-When the threshold is decreased, the detector becomes more permissive because lower correlation values can satisfy the detection condition.
-
-This increases the possibility that fluctuations that do not correspond to a valid Short Training Field satisfy the detection condition.
-
-Therefore, a threshold that is too low can increase the risk of **false detections**.
-
-### 4.3 Threshold Trade-Off
-
-The threshold must therefore provide a compromise between sensitivity and selectivity:
-
-* **Lower threshold:** more permissive detection, with a higher risk of false detections.
-* **Higher threshold:** more selective detection, with a higher risk of missing weaker frames.
-
-The paper does not specify a single optimal numerical threshold. The appropriate value depends on the received signal and channel conditions.
-
----
-
-## 5. Limitations and Breakdown Scenarios
-
-Despite its simplicity and low computational cost, the autocorrelation-based frame detection method has several limitations.
-
-### 5.1 Fixed Number of Forwarded Samples
-
-After detecting a frame, the OFDM Sync Short block forwards a **fixed number of samples**.
-
-This means that the maximum frame size that can be processed is limited by the number of samples forwarded by the block.
-
-### 5.2 Closely Spaced Frames
-
-Another limitation occurs when a second frame arrives shortly after the first detected frame.
-
-While the block is still forwarding the samples associated with the first frame, a new frame can be missed. The paper specifically describes this problem for a **CTS (Clear To Send) frame following an RTS (Request To Send) frame**. In this situation, the receiver can remain synchronized to the preceding RTS and fail to detect the following CTS.
-
-This demonstrates that the approach can have difficulties with closely spaced frames.
-
-### 5.3 Autocorrelation Detection
-
-The paper also mentions that **matched filtering** could provide more robust detection of the known training sequence. However, matched filtering requires significantly more computation.
-
-For this reason, the receiver uses the computationally simpler autocorrelation method for the initial frame detection stage.
-
----
-
-## 6. Week 2 Conclusion
-
-Week 2 extended the frame detection system developed during Week 1 by integrating the **OFDM Sync Short** block.
-
-The normalized autocorrelation metric $c[n]$ is now used to automatically detect the Short Training Field and determine when samples should be forwarded to the next stages of the receiver.
-
-Changing the detection threshold showed the expected trade-off between permissive and selective detection. Increasing the threshold makes the detector more selective, while decreasing it makes the detector more permissive.
-
-The main limitations of this approach are the fixed number of forwarded samples and the possibility of missing frames that arrive shortly after a previously detected frame.
-
-
-## Week 3 – Frequency Offset Correction and OFDM Sync Long
-
-### Objective
-
-The objective of Week 3 was to understand the `OFDM Sync Long` block and the frequency offset correction described in Section 2.3 of the article. We also studied the purpose of the delayed input and the effect of changing its delay.
-
-### Frequency offset correction
-
-A frequency offset can appear because the transmitter and receiver local oscillators are not perfectly synchronized. This produces a progressive phase rotation in the received complex samples.
-
-The short training sequence is periodic with a period of 16 samples. Therefore, the phase difference between samples separated by 16 samples can be used to estimate the frequency offset:
-
-$$
-\Delta f = \frac{1}{16} \arg\left(\sum_n s[n]\,s^*[n+16]\right)
-$$
-
-The estimated rotation can then be compensated on the received samples.
-### OFDM Sync Long
-
-The `OFDM Sync Long` block was added after `WiFi Sync Short`.
-
-Two versions of the output of `WiFi Sync Short` are provided to the block:
-
-- a direct input;
-- a delayed input using a delay of 240 samples.
-
-The final configuration used was:
-
-- Sync Short threshold: `0.8`
-- Minimum plateau: `2`
-- Delay: `240 samples`
-- Sync Length: `240 samples`
-
-The value of 240 samples for the delay is the value shown in the receiver architecture of the article. The installed version of the `WiFi Sync Long` block also uses 240 as the default Sync Length.
-
-### Parameters that can be varied
-
-In the current implementation, the main parameter of the `WiFi Sync Long` block that can be changed is the **Sync Length**. Its default value in the installed version is **240 samples**.
-
-The **delay value** of the delayed input can also be modified externally using the `Delay` block. The reference configuration uses a delay of **240 samples**. Changing this value changes the relative alignment between the direct and delayed inputs of `WiFi Sync Long`.
-
-The frequency offset estimation itself relies on the periodicity of the Short Training Field, with samples separated by **16 samples**. This value comes from the IEEE 802.11a preamble structure and was therefore kept unchanged in our implementation.
-
-### Delayed input experiment
-
-To study the effect of the delayed input, the same input file was processed while changing only the delay value. The Sync Length remained fixed at 240 samples.
-
-| Delay (samples) | `wifi_start` tags observed at Sync Long output |
-|---:|---:|
-| 240 | 574 |
-| 200 | 501 |
-| 160 | 427 |
-
-Reducing the delay reduced the number of `wifi_start` tags observed at the output of `WiFi Sync Long`. This shows that the delayed input affects the synchronization process.
-
-The delayed branch provides an earlier version of the received samples while the synchronization algorithm processes the direct input. Changing the delay changes the relative alignment between these two input streams.
-
-After the experiment, the delay was restored to `240 samples`.
-
-### Week 3 Conclusion
-
-During Week 3, the `OFDM Sync Long` block was added to the receiver chain and the principle of frequency offset correction was studied. The delayed input was also investigated experimentally. With the reference delay of 240 samples, 574 `wifi_start` tags were observed at the output, compared with 501 for a delay of 200 samples and 427 for 160 samples. This experiment showed that the delay value has a clear impact on the synchronization process.
-
-The final configuration was restored to a delay of 240 samples with a Sync Length of 240 samples. The receiver is now ready for the next step: precise OFDM symbol alignment using the Long Training Field.
+3. `gr-ieee802-11` GNU Radio implementation.
